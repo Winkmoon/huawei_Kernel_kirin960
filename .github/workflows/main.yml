@@ -87,7 +87,7 @@ jobs:
           echo "CONFIG_KSU_TRACEPOINT_HOOK=y" >> ./arch/arm64/configs/Pangu_Kirin960_defconfig
 
       # 编译内核
-      - name: 构建麒麟970内核
+      - name: 构建麒麟960内核
         run: |
           # 配置编译环境
           export PATH=$(pwd)/ToolChain/bin/:$PATH

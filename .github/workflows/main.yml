@@ -1,0 +1,185 @@
+name: 构建华为kirin960通用内核 (test)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-22.04
+
+    env:
+      # 编译内核的命令行参数
+      KERNEL_CMDLINE: "ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- O=out"
+
+    steps:
+      # 获取当前分支信息
+      - name: Get branch
+        id: branch
+        uses: tj-actions/branch-names@v8
+
+      # 设置交换空间（15GB）
+      - name: Set SWAP
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 15
+
+      # 安装系统依赖和编译工具
+      - name: 安装系统环境依赖
+        run: |
+          sudo apt-get update
+          sudo apt install gcc-arm-linux-gnueabi -y
+          sudo apt install make python2 git bc ccache curl lib32ncurses5-dev libncurses5 libncurses5-dev -y
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository -y ppa:deadsnakes/ppa
+          sudo apt-get update
+          sudo apt-get install -y \
+            git build-essential make bc python2.7 python3 \
+            libncurses5-dev lib32z1-dev gcc-multilib g++-multilib \
+            flex bison libssl-dev device-tree-compiler zip
+          sudo ln -sf /usr/bin/python2.7 /usr/bin/python2
+          mkdir -p $GITHUB_WORKSPACE/workdir
+          echo "BUILD_TIME=$(date +%Y%m%d%H%M)" >> $GITHUB_ENV
+
+      # 下载编译工具链
+      - name: 下载并安装编译工具
+        run: |
+          git clone https://github.com/HoleHolo/ToolChains.git $(pwd)/ToolChain \
+            --depth=1 -b main
+
+      # 获取当前时间（用于版本命名）
+      - name: 设置系统时间
+        id: get_time
+        run: |
+          echo "TIME=$(TZ=UTC-8 date +%Y%m%d)" >> $GITHUB_OUTPUT
+
+      # 拉取内核源码
+      - name: 拉取源码仓库
+        run: |
+          git clone --recursive https://github.com/Winkmoon/huawei_Kernel_kirin960.git \
+            -b HarmonyOS \
+            --depth 1 $GITHUB_WORKSPACE/workdir/source
+
+      # 集成 SukiSU 并配置内核选项
+      - name: 集成SukiSU并设置相关属性
+        run: |
+          cd $GITHUB_WORKSPACE/workdir/source
+          
+          # 修改版本信息
+          sed -i "\$s|echo \"\\\$res\"|echo \"-Xinran_StarBai_Kirin960\"|" ./scripts/setlocalversion
+          
+          # 安装 SukiSU
+          rm -rf KernelSU
+          wget https://github.com/SukiSU-Ultra/SukiSU_patch/blob/main/4.9/4.9_syscall_hooks.patch
+          patch -p1 < 4.9_syscall_hooks.patch
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s nongki
+          
+          # 更新 SukiSU 版本号
+          cd ./KernelSU
+          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) + 10700)
+          export KSU_VERSION=$KSU_VERSION
+          sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=$KSU_VERSION/" kernel/Makefile
+          cd ..
+
+          # 配置内核选项
+          echo "CONFIG_MODULE_SIG=n" >> ./arch/arm64/configs/Pangu_Kirin960_defconfig
+          echo "CONFIG_MODULE_SIG_ALL=n" >> ./arch/arm64/configs/Pangu_Kirin960_defconfig
+          echo "CONFIG_KSU_TRACEPOINT_HOOK=y" >> ./arch/arm64/configs/Pangu_Kirin960_defconfig
+
+      # 编译内核
+      - name: 构建麒麟970内核
+        run: |
+          # 配置编译环境
+          export PATH=$(pwd)/ToolChain/bin/:$PATH
+          export KBUILD_BUILD_HOST=欣然love白
+          export KBUILD_BUILD_USER=kuan-@Xinran_StarBai
+          
+          # 进入源码目录
+          cd $GITHUB_WORKSPACE/workdir/source
+          
+          # 生成配置文件并编译
+          make $KERNEL_CMDLINE Pangu_Kirin960_defconfig
+          make $KERNEL_CMDLINE -j$(nproc --all)
+          
+          # 生成 boot 镜像
+          tools/mkbootimg \
+            --kernel out/arch/arm64/boot/Image.gz \
+            --base 0x0 \
+            --cmdline "loglevel=4 initcall_debug=n page_tracker=on unmovable_isolate1=2:192M,3:224M,4:256M printktimer=0xfff0a000,0x534,0x538 androidboot.selinux=enforcing buildvariant=user" \
+            --tags_offset 0x07A00000 \
+            --kernel_offset 0x00080000 \
+            --ramdisk_offset 0x07C00000 \
+            --header_version 1 \
+            --os_version 9 \
+            --os_patch_level 2019-05-05 \
+            --output kernel-${{ steps.get_time.outputs.TIME }}-enforcing.img
+
+      # 上传构建产物到 Artifacts
+      - name: 上传构建成品
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ steps.get_time.outputs.TIME }}
+          path: |
+            /home/runner/work/huawei-kirin970-kernel-emui9.1/huawei-kirin970-kernel-emui9.1/workdir/source/out/arch/arm64/boot/Image.gz
+            /home/runner/work/huawei-kirin970-kernel-emui9.1/huawei-kirin970-kernel-emui9.1/workdir/source/out/arch/arm64/boot/*.zip
+
+      # 收集系统信息（用于发布说明）
+      - name: 获取系统信息
+        id: system-info
+        run: |
+          echo "os-name=$(lsb_release -ds)" >> $GITHUB_OUTPUT
+          echo "toolchain-version=$($(pwd)/ToolChain/bin/aarch64-linux-gnu-gcc --version | head -n1 | awk '{print $4}')" >> $GITHUB_OUTPUT
+
+      # 创建 GitHub Release
+      - name: 创建发布
+        id: create-release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: kernel-${{ steps.get_time.outputs.TIME }}
+          release_name: Kernel Build ${{ steps.get_time.outputs.TIME }}
+          draft: false
+          prerelease: false
+          body: |
+            ## 内核镜像信息
+            - **编译时间**: ${{ steps.get_time.outputs.TIME }}
+            - **编译作者**: 酷安@Xinran_StarBai
+            - **内核名称**: -Xinran_StarBai_Kirin960
+            - **发布时间**: ${{ github.event.head_commit.timestamp }}
+            - **编译系统**: ${{ steps.system-info.outputs.os-name }}
+            - **编译工具链版本**: ${{ steps.system-info.outputs.toolchain-version }}
+            
+            ## 特性说明
+            - 集成 SukiSU 3.1.9-ed3536d5@nongki 版本
+            - 使用 TRACEPOINT 钩子
+            - 不包含 kpm 和 susfs
+            
+            ## 注意事项
+            ####################################################################
+            ！！！此版本仅限海思麒麟960鸿蒙系统使用，其他系统禁止刷入此内核！！！
+            ####################################################################
+            请根据你的设备型号和系统版本选择合适的镜像进行刷入。刷入前建议备份重要数据
+
+      # 上传文件到 Release 资产
+      - name: 上传发布资产
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 定义要上传的文件路径
+          files=(
+            "${{ github.workspace }}/workdir/source/out/arch/arm64/boot/Image.gz"
+            "${{ github.workspace }}/workdir/source/out/arch/arm64/boot/*.zip"
+          )
+          
+          # 循环上传每个文件
+          for file in "${files[@]}"; do
+            # 提取文件名作为资产名称
+            filename=$(basename "$file")
+            
+            # 上传资产
+            gh release upload ${{ steps.create-release.outputs.upload_url }} "$file" \
+              --name "$filename" \
+              --content-type "application/octet-stream"
+          done
+        shell: bash

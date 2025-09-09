@@ -70,8 +70,8 @@ jobs:
           
           # 安装 SukiSU
           rm -rf KernelSU
-          wget https://github.com/SukiSU-Ultra/SukiSU_patch/blob/main/4.9/4.9_syscall_hooks.patch
-          patch -p1 < 4.9_syscall_hooks.patch
+          #wget https://github.com/SukiSU-Ultra/SukiSU_patch/blob/main/4.9/4.9_syscall_hooks.patch
+          #patch -p1 < 4.9_syscall_hooks.patch
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s nongki
           
           # 更新 SukiSU 版本号

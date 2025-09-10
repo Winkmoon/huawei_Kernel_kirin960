@@ -1988,7 +1988,7 @@ OAL_STATIC oal_int32 _oal_sdio_transfer_scatt(struct oal_sdio *hi_sdio, oal_int3
                         oal_uint32 rw_sz)
 {
 #ifdef CONFIG_HISI_SDIO_TIME_DEBUG
-    ktime_t time_start;
+    ktime_t time_start = ktime_set(0, 0);
 #endif
     oal_int32 ret = OAL_SUCC;
     oal_int32 write = (rw == SDIO_READ) ? 0 : 1;

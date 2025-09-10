@@ -706,7 +706,7 @@ disable_fast_switch:
 	return ret;
 }
 
-static int sugov_exit(struct cpufreq_policy *policy)
+static void sugov_exit(struct cpufreq_policy *policy)
 {
 	struct sugov_policy *sg_policy = policy->governor_data;
 	struct sugov_tunables *tunables = sg_policy->tunables;
@@ -762,7 +762,7 @@ static int sugov_start(struct cpufreq_policy *policy)
 	return 0;
 }
 
-static int sugov_stop(struct cpufreq_policy *policy)
+static void sugov_stop(struct cpufreq_policy *policy)
 {
 	struct sugov_policy *sg_policy = policy->governor_data;
 	unsigned int cpu;
@@ -778,7 +778,7 @@ static int sugov_stop(struct cpufreq_policy *policy)
 	return 0;
 }
 
-static int sugov_limits(struct cpufreq_policy *policy)
+static void sugov_limits(struct cpufreq_policy *policy)
 {
 	struct sugov_policy *sg_policy = policy->governor_data;
 
